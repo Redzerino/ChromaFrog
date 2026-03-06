@@ -1,0 +1,110 @@
+CHROMAFROG - BUGS AND FIXES
+===========================
+
+
+--- SYNTAX ERRORS (assembler wouldn't run) ---
+
+Indexed addressing with data register
+  RED_FLY_X(D7) - Easy68K doesn't support this syntax.
+  Easy68K only allows address registers as a base, not data registers.
+  Fixed by removing all array-style addressing entirely. Each fly got its
+  own named variables (RF0_X, RF1_X, RF2_X etc) instead.
+
+Score display using task 15
+  Task 15 writes to the text console, not the graphics window.
+  Score was showing in the console box, not on the game screen.
+  Fixed by writing INT_TO_STR - converts a number to a string using
+  repeated DIVU #10, reverses it, then draws it with task 95.
+
+
+--- MEMORY / ASSEMBLER BUGS ---
+
+Both files had ORG $1000
+  FROG_MENU.X68 and FROG_MAIN.X68 both had ORG $1000.
+  When the assembler included FROG_MAIN it jumped the program counter
+  back to $1000 and GAME_START overwrote the menu code.
+  This meant execution skipped straight past the start screen into the game.
+  Fixed by removing ORG $1000 from FROG_MAIN. The menu code sits at $1000,
+  FROG_MAIN's code just follows on after it in memory.
+
+MUSTACHE_FLAG defined twice
+  MUSTACHE_FLAG was defined with EQU in both FROG_MENU and FROG_MAIN
+  causing a duplicate symbol error.
+  Fixed by only defining it once in FROG_MENU. FROG_MAIN can see it
+  because it gets included after.
+
+DS.L vs EQU conflict for shared variables
+  FROG_NAME and MUSTACHE_FLAG were defined with DS.B/DS.L in FROG_MENU
+  but also referenced as EQU in FROG_MAIN - both couldn't exist at once.
+  Fixed by changing everything to EQU with fixed addresses ($4F00, $4F14).
+  Both files use the same fixed addresses so there's no conflict.
+
+MUSTACHE_FLAG not cleared between runs
+  MUSTACHE_FLAG sits in RAM at $4F14. When Easy68K closes and reopens,
+  RAM isn't zeroed - whatever was left there from the last run stays.
+  So sometimes the moustache would show when it shouldn't (or not show when
+  it should) depending on what was in memory.
+  Fixed by explicitly setting MUSTACHE_FLAG to 0 at the start of FROG_MENU
+  before anything else runs.
+
+
+--- GAMEPLAY BUGS ---
+
+Jump scoring triggered anywhere on screen
+  The jump check only tested if PLAYER_Y < GF0_Y (frog above fly).
+  No X overlap check at all, so jumping anywhere on screen scored points
+  for every active green fly.
+  Fixed by also requiring frog centre X to be within 40px of the fly's X.
+
+Damage cooldown too long / triggered wrong
+  Cooldown was 60 frames - too long. Walking into two different flies
+  in a row would only take 1 damage because the cooldown was still running.
+  Fixed by reducing cooldown to 10 frames. Just enough to stop the same
+  fly registering twice in one frame, but two different flies back to back
+  will each deal damage.
+
+Yellow colour unreadable
+  The yellow used for score/labels ($0000EEFF) was hard to read on the
+  dark green background - too washed out.
+  Fixed by changing to a brighter orange-yellow ($000088FF).
+
+--- DEAD CODE REMOVED ---
+
+IS_FLIPPED
+  Variable declared and reset in RESET_GAME but never read anywhere.
+  Leftover from when the frog could flip direction. Removed.
+
+PLYR_DIRECTION_X
+  Written every frame (-1, 0, or 1) but never read anywhere.
+  Was for the flip mechanic which got removed. Removed.
+
+REPEL_TIMER
+  Counted down each frame after a red blast. The countdown result
+  was never tested or branched on - just ticking for nothing.
+  Removed.
+
+SCREEN_H
+  Defined as a constant but never referenced anywhere in the code.
+  Flies despawn by X position, not Y. Removed.
+
+HIGH_SCORE_P
+  Defined at $4F10 and zeroed at startup in FROG_MENU.
+  Never actually saved to or loaded from anywhere in the game.
+  Was probably meant to be a persistent high score that survived
+  sessions but was never hooked up. Removed.
+
+
+--- OTHER CHANGES ---
+
+Game over went back to game loop instead of start screen
+  After game over, pressing space reset the game and jumped straight
+  back into GAME_LOOP, skipping the start screen and name entry entirely.
+  Changed to JMP SHOW_START so the player goes back to the title screen
+  and can enter their name again before the next round.
+
+Speed announcement added then removed
+  Added a "SPEED UP!" banner that showed when fly speed increased.
+  The score threshold detection was moved to use score directly
+  (every 50 points) rather than comparing speed values.
+  Then the whole feature was removed, i didnt really like it so lol.
+  Speed scaling still works (CALC_SPEED), just doesnt tell you.
