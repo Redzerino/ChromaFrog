@@ -1,90 +1,85 @@
 *-----------------------------------------------------------
-* Title      : FROG_MAIN (Enhanced)
-* Description: Frog movement (A/D), colour cycle (C),
-*              GREEN = jump (SPACE), RED = repel red flies,
-*              BLUE = absorb blue flies (score),
-*              Red flies damage health if not in red mode.
-*              Health pips + score + high score on HUD.
-*
-* Trap 15 tasks used:
-*   19  - read multiple keys simultaneously
-*   33  - open graphics window (D1=W, D2=H)
-*   80  - set pen colour  (D1=$00BBGGRR)
-*   81  - set fill colour (D1=$00BBGGRR)
-*   87  - draw filled rectangle (D1=LX D2=UY D3=RX D4=LY)
-*   88  - draw filled ellipse   (D1=LX D2=UY D3=RX D4=LY)
-*   92  - set draw mode (D1=17 enable buffer, D1=4 normal)
-*   94  - repaint / flip buffer to screen
-*   95  - draw text string at X,Y (A1=str, D1=X, D2=Y)
-*   15  - display integer D1 at cursor  (used for score)
+* Title      : FROG_MAIN.X68
+* Author     : Sarah Crotty
+* Date       : 26/02/2026
+* Description: This is the main game file. Handles everything that happens
+*              while you are actually playing - moving the frog, colour modes,
+*              jumping, blasting, attracting, health, score and the flies.
+* Known Bugs : If two flies hit you in the same moment you might only lose
+*              one health pip instead of two.
 *-----------------------------------------------------------
 
 *-----------------------------------------------------------
 * Constants
 *-----------------------------------------------------------
-MOVE_SPEED          equ 3
-SCREEN_W            equ 640
-SCREEN_H            equ 480
-FROG_SPRITE_W       equ 52
-FROG_SPRITE_H       equ 36
-GROUND_Y            equ 320
+MOVE_SPEED          equ 3           * how fast the frog walks left or right
+SCREEN_W            equ 640         * width of the game window
+FROG_SPRITE_W       equ 52          * how wide the frog is, so we stop it going off the right edge
+FROG_SPRITE_H       equ 36          * how tall the frog is
+GROUND_Y            equ 320         * the Y position of the ground - frog and flies stand here
 
-COL_GREEN           equ 0
-COL_RED             equ 1
-COL_BLUE            equ 2
+COL_GREEN           equ 0           * green mode - frog can jump
+COL_RED             equ 1           * red mode - frog can blast flies away
+COL_BLUE            equ 2           * blue mode - frog can pull blue flies in
 
-FROG_GREEN_MID_G    equ $0038C100
-FROG_GREEN_LIGHT_G  equ $0055DD11
-FROG_GREEN_MID_R    equ $00CC0000
-FROG_GREEN_LIGHT_R  equ $00FF3300
-FROG_GREEN_MID_B    equ $000055FF
-FROG_GREEN_LIGHT_B  equ $000099FF
+* Frog colours change depending on which mode you are in.
+* MID is the main body colour, LIGHT is the brighter highlight on top.
+* _G = green mode, _R = red mode, _B = blue mode
+FROG_GREEN_MID_G    equ $0038C100    * dark green body colour
+FROG_GREEN_LIGHT_G  equ $0055DD11    * bright green for the shiny bit on top
+FROG_GREEN_MID_B    equ $00CC0000    * dark blue body colour
+FROG_GREEN_LIGHT_B  equ $00FF3300    * bright blue for the shiny bit
+FROG_GREEN_MID_R    equ $000000FF    * dark red body colour
+FROG_GREEN_LIGHT_R  equ $000099FF    * bright red for the shiny bit
 
-FLY_W               equ 10
-FLY_H               equ 8
-MAX_HEALTH          equ 5
-JUMP_VEL            equ -12
-GRAVITY             equ 1
+FLY_W               equ 10          * how wide a fly is
+FLY_H               equ 8           * how tall a fly is
+MAX_HEALTH          equ 5           * how many health pips you start with
+JUMP_VEL            equ -12         * how fast the frog shoots up when jumping (negative = up on screen)
+GRAVITY             equ 1           * pulls the frog back down every frame
 
-COL_BG              equ $00132213
-COL_GROUND          equ $00224422
-COL_GROUND_LT       equ $002A5522
-COL_RED_FLY         equ $000022FF
-COL_BLUE_FLY        equ $00FF6622
-COL_WHITE           equ $00FFFFFF
-COL_YELLOW          equ $0000EEFF
-COL_HP_FULL         equ $004444FF
-COL_HP_EMPTY        equ $00111144
-COL_SCORE_C         equ $00FFC84D
-COL_WING_B          equ $00FFAAAA
-COL_WING_R          equ $00AAAAFF
-COL_GREEN_FLY       equ $0000CC00
-COL_WING_G          equ $0000FF44
+COL_BG              equ $00132213    * dark green background colour
+COL_GROUND          equ $00224422    * colour of the ground
+COL_GROUND_LT       equ $002A5522    * slightly lighter strip at the top of the ground
+COL_RED_FLY         equ $000022FF    * red fly colour (Easy68K uses BGR not RGB so this looks red)
+COL_BLUE_FLY        equ $00FF6622    * blue fly colour
+COL_WHITE           equ $00FFFFFF    * white - used for eyes and text
+COL_YELLOW          equ $000088FF    * orangey yellow used for score and labels
+COL_HP_FULL         equ $004444FF    * colour of a health pip when you still have it
+COL_HP_EMPTY        equ $00111144    * colour of a health pip when its gone
+COL_SCORE_C         equ $00FFC84D    * colour used for the score text
+COL_WING_B          equ $00FFAAAA    * blue fly wing colour
+COL_WING_R          equ $00AAAAFF    * red fly wing colour
+COL_GREEN_FLY       equ $0000CC00    * green fly colour
+COL_WING_G          equ $0000FF44    * green fly wing colour
 
 *-----------------------------------------------------------
 * Variables
 *-----------------------------------------------------------
+* Copied from FROG_MENU.X68 so this file knows where the name lives in memory
+FROG_NAME       equ $4F00
+
     ORG     $5000
-POS_X               DS.L 1
-POS_Y               DS.L 1
-PLAYER_X            DS.L 1
-PLAYER_Y            DS.L 1
-PLYR_DIRECTION_X    DS.L 1
-IS_FLIPPED          DS.L 1
-COLOUR_STATE        DS.L 1
-FROG_GREEN_MID      DS.L 1
-FROG_GREEN_LIGHT    DS.L 1
-PREV_C_STATE        DS.L 1
-PREV_SP_STATE       DS.L 1
+POS_X               DS.L 1          * temp X used by the draw routines
+POS_Y               DS.L 1          * temp Y used by the draw routines
+PLAYER_X            DS.L 1          * frog X position on screen
+PLAYER_Y            DS.L 1          * frog Y position on screen
+COLOUR_STATE        DS.L 1          * which colour mode the frog is in (0=green 1=red 2=blue)
+FROG_GREEN_MID      DS.L 1          * the frogs main body colour - changes when you press C
+FROG_GREEN_LIGHT    DS.L 1          * the frogs highlight colour - changes when you press C
+PREV_C_STATE        DS.L 1          * was C held last frame? stops colour changing too fast if you hold C
+PREV_SP_STATE       DS.L 1          * was space held last frame? stops jump/blast firing every frame
 
-VEL_Y               DS.L 1
-ON_GROUND           DS.L 1
+VEL_Y               DS.L 1          * how fast the frog is moving up or down (negative = going up)
+ON_GROUND           DS.L 1          * 1 if the frog is on the ground, 0 if in the air
 
-HEALTH              DS.L 1
-SCORE               DS.L 1
-HIGH_SCORE          DS.L 1
-HIT_COOLDOWN        DS.L 1
+HEALTH              DS.L 1          * how many health pips are left (hits zero = game over)
+SCORE               DS.L 1          * your score for this round
+HIGH_SCORE          DS.L 1          * the best score you have gotten this session
+HIT_COOLDOWN        DS.L 1          * stops you taking damage again too quickly after getting hit
 
+* Red flies - there are 3 of them. X/Y is where they are, DX is how fast
+* they move sideways, DY only matters when blasted (they fly upward), ACT means the fly is alive
 RF0_X               DS.L 1
 RF0_Y               DS.L 1
 RF0_DX              DS.L 1
@@ -98,6 +93,8 @@ RF2_Y               DS.L 1
 RF2_DX              DS.L 1
 RF2_ACT             DS.L 1
 
+* Blue flies - there are 3 of them. They get pulled toward the frog when
+* you hold space in blue mode. Touching them in blue mode gives +10 points.
 BF0_X               DS.L 1
 BF0_Y               DS.L 1
 BF0_DX              DS.L 1
@@ -111,7 +108,8 @@ BF2_Y               DS.L 1
 BF2_DX              DS.L 1
 BF2_ACT             DS.L 1
 
-* Green flies: 3 slots (ground level, jump over for points)
+* Green flies - there are 3 of them. They walk along the ground.
+* Jump over them for +5 points, or touch them and take damage.
 GF0_X               DS.L 1
 GF0_Y               DS.L 1
 GF0_DX              DS.L 1
@@ -125,37 +123,42 @@ GF2_Y               DS.L 1
 GF2_DX              DS.L 1
 GF2_ACT             DS.L 1
 
-* Tracks whether frog was above each green fly last frame (for jump-over scoring)
+* Remembers if you were already above each green fly so we only score once per jump
 GF0_JUMPED          DS.L 1
 GF1_JUMPED          DS.L 1
 GF2_JUMPED          DS.L 1
 
-* Red fly vertical velocity (for blast-to-sky)
+* Vertical speed for red flies - only used when you blast them upward with space
 RF0_DY              DS.L 1
 RF1_DY              DS.L 1
 RF2_DY              DS.L 1
 
-WING_TIMER          DS.L 1
-FRAME_COUNT         DS.L 1
-REPEL_TIMER         DS.L 1
+WING_TIMER          DS.L 1          * counts up to make fly wings flap up and down
+FRAME_COUNT         DS.L 1          * counts every frame, used to decide when to spawn new flies
 
-COL_FLY_X          DS.L 1
-COL_FLY_Y          DS.L 1
+COL_FLY_X          DS.L 1          * temp X used when checking or drawing a fly
+COL_FLY_Y          DS.L 1          * temp Y used when checking or drawing a fly
+NUM_BUF            DS.B 12          * temp space to build the score number as text
 
 *-----------------------------------------------------------
 * Entry
 *-----------------------------------------------------------
-    ORG     $1000
-START:
-    * Open 640x480 graphics window
-    MOVE.L  #640,   D1
+* Runs straight on from FROG_MENU.X68
+GAME_START:
+    * Open the game window
+    MOVE.L  #SCREEN_W, D1
     MOVE.L  #480,   D2
     MOVE.B  #33,    D0
     TRAP    #15
 
-    * Enable double buffering
+    * Turn on double buffering so nothing flickers
     MOVE.L  #17,    D1
     MOVE.B  #92,    D0
+    TRAP    #15
+
+    * Stop Easy68K stealing the ESC key so we can use it to quit
+    MOVE.L  #1,     D1
+    MOVE.B  #24,    D0
     TRAP    #15
 
     JSR     RESET_GAME
@@ -166,73 +169,73 @@ START:
 *-----------------------------------------------------------
 GAME_LOOP:
     * Increment counters
-    MOVE.L  FRAME_COUNT, D0
-    ADD.L   #1, D0
-    MOVE.L  D0, FRAME_COUNT
+    MOVE.L  FRAME_COUNT, D0          * grab the frame counter
+    ADD.L   #1, D0                  * add 1 every frame
+    MOVE.L  D0, FRAME_COUNT          * save it back
 
-    MOVE.L  WING_TIMER, D0
-    ADD.L   #1, D0
-    CMP.L   #8, D0
+    MOVE.L  WING_TIMER, D0          * grab the wing flap counter
+    ADD.L   #1, D0                  * tick it up
+    CMP.L   #8, D0                  * gone past 8? reset it to make a loop
     BLT     WING_OK
     MOVE.L  #0, D0
 WING_OK:
     MOVE.L  D0, WING_TIMER
 
-    MOVE.L  HIT_COOLDOWN, D0
-    BEQ     NO_CD
-    SUB.L   #1, D0
+    MOVE.L  HIT_COOLDOWN, D0        * are we still in the no-damage window after getting hit?
+    BEQ     NO_CD                   * no, nothing to do
+    SUB.L   #1, D0                  * count down one frame
     MOVE.L  D0, HIT_COOLDOWN
 NO_CD:
 
-    MOVE.L  REPEL_TIMER, D0
-    BEQ     NO_REP
-    SUB.L   #1, D0
-    MOVE.L  D0, REPEL_TIMER
-NO_REP:
-
-    * Read keys: A D C SPACE
+    * Check which keys are being held right now (A, D, C and Space all at once)
+    * Task 19 reads up to 4 keys - each byte is $FF if held, $00 if not
     MOVE.L  #'A'<<24|'D'<<16|'C'<<8|' ', D1
     MOVE.B  #19,    D0
     TRAP    #15
-    MOVE.L  D1,     D5
+    MOVE.L  D1,     D5              * save the result so we can check each key below
 
-    MOVE.L  #0,     PLYR_DIRECTION_X
+    * Check ESC separately
+    MOVE.L  #$1B000000, D1          * ESC key code goes in the high byte
+    MOVE.B  #19,    D0
+    TRAP    #15
+    BTST.L  #31,    D1              * if bit 31 is set, ESC is being held
+    BNE     QUIT_GAME               * quit the game
 
-    * A key (bit 31)
-    BTST.L  #31,    D5
-    BEQ     CHECK_D
-    MOVE.L  #-1,    PLYR_DIRECTION_X
+    * Move left if A is held
+    BTST.L  #31,    D5              * A is in the top byte, bit 31
+    BEQ     CHECK_D                 * not pressed, skip
     MOVE.L  PLAYER_X, D0
-    SUB.L   #MOVE_SPEED, D0
-    BGE     OK_LEFT
-    MOVE.L  #0, D0
+    SUB.L   #MOVE_SPEED, D0         * move left
+    BGE     OK_LEFT                 * still on screen?
+    MOVE.L  #0, D0                  * hit the left wall, stop there
 OK_LEFT:
     MOVE.L  D0, PLAYER_X
 
 CHECK_D:
-    BTST.L  #23,    D5
-    BEQ     CHECK_C
-    MOVE.L  #1,     PLYR_DIRECTION_X
+    * Move right if D is held
+    BTST.L  #23,    D5              * D is in byte 2, bit 23
+    BEQ     CHECK_C                 * not pressed, skip
     MOVE.L  PLAYER_X, D0
-    ADD.L   #MOVE_SPEED, D0
-    MOVE.L  #SCREEN_W-FROG_SPRITE_W, D1
-    CMP.L   D1, D0
-    BLE     OK_RIGHT
-    MOVE.L  D1, D0
+    ADD.L   #MOVE_SPEED, D0         * move right
+    MOVE.L  #SCREEN_W-FROG_SPRITE_W, D1  * work out where the right wall is
+    CMP.L   D1, D0                  * would we go past it?
+    BLE     OK_RIGHT                * no, fine
+    MOVE.L  D1, D0                  * yes, stop at the right wall
 OK_RIGHT:
     MOVE.L  D0, PLAYER_X
 
 CHECK_C:
-    BTST.L  #15,    D5
-    BEQ     C_UP
-    TST.L   PREV_C_STATE
-    BNE     SKIP_CYCLE
+    * Cycle colour mode if C is pressed
+    BTST.L  #15,    D5              * C is in byte 1, bit 15
+    BEQ     C_UP                    * not pressed
+    TST.L   PREV_C_STATE            * was C already held last frame?
+    BNE     SKIP_CYCLE              * yes - dont change mode again until they let go
 
-    MOVE.L  COLOUR_STATE, D0
-    ADD.L   #1, D0
-    CMP.L   #3, D0
+    MOVE.L  COLOUR_STATE, D0        * get the current mode
+    ADD.L   #1, D0                  * go to the next one
+    CMP.L   #3, D0                  * gone past the last mode?
     BNE     SAVE_CS
-    MOVE.L  #0, D0
+    MOVE.L  #0, D0                  * yes - wrap back around to green
 SAVE_CS:
     MOVE.L  D0, COLOUR_STATE
 
@@ -241,108 +244,117 @@ SAVE_CS:
     CMP.L   #COL_BLUE, D0
     BEQ     DO_BLUE
 DO_GREEN:
-    MOVE.L  #FROG_GREEN_MID_G,   FROG_GREEN_MID
-    MOVE.L  #FROG_GREEN_LIGHT_G, FROG_GREEN_LIGHT
+    MOVE.L  #FROG_GREEN_MID_G,   FROG_GREEN_MID    * use green body colour
+    MOVE.L  #FROG_GREEN_LIGHT_G, FROG_GREEN_LIGHT  * use green highlight
     BRA     SKIP_CYCLE
 DO_RED:
-    MOVE.L  #FROG_GREEN_MID_R,   FROG_GREEN_MID
-    MOVE.L  #FROG_GREEN_LIGHT_R, FROG_GREEN_LIGHT
+    MOVE.L  #FROG_GREEN_MID_R,   FROG_GREEN_MID    * use red body colour
+    MOVE.L  #FROG_GREEN_LIGHT_R, FROG_GREEN_LIGHT  * use red highlight
     BRA     SKIP_CYCLE
 DO_BLUE:
-    MOVE.L  #FROG_GREEN_MID_B,   FROG_GREEN_MID
-    MOVE.L  #FROG_GREEN_LIGHT_B, FROG_GREEN_LIGHT
+    MOVE.L  #FROG_GREEN_MID_B,   FROG_GREEN_MID    * use blue body colour
+    MOVE.L  #FROG_GREEN_LIGHT_B, FROG_GREEN_LIGHT  * use blue highlight
 
 SKIP_CYCLE:
-    MOVE.L  #1, PREV_C_STATE
+    MOVE.L  #1, PREV_C_STATE        * remember C is held so we dont cycle again next frame
     BRA     CHECK_JUMP
 C_UP:
-    MOVE.L  #0, PREV_C_STATE
+    MOVE.L  #0, PREV_C_STATE        * C is not held, reset so next press works
 
 CHECK_JUMP:
     * Space pressed?
-    BTST.L  #7, D5
-    BEQ     SP_NOT_PRESSED
+    * Check if space is being pressed
+    BTST.L  #7, D5                  * space is in byte 0, bit 7
+    BEQ     SP_NOT_PRESSED          * not pressed, skip
 
-    * --- GREEN: jump (only on ground, edge-triggered) ---
+    * GREEN mode - jump
     MOVE.L  COLOUR_STATE, D0
     CMP.L   #COL_GREEN, D0
     BNE     SP_TRY_RED
-    TST.L   ON_GROUND
-    BEQ     DO_PHYSICS
+    TST.L   ON_GROUND               * can only jump if on the ground
+    BEQ     DO_PHYSICS              * in the air already, ignore
     TST.L   PREV_SP_STATE
-    BNE     DO_PHYSICS          * already held, no repeat jump
-    MOVE.L  #JUMP_VEL, VEL_Y
-    MOVE.L  #0, ON_GROUND
+    BNE     DO_PHYSICS              * space was already held, dont jump again
+    MOVE.L  #JUMP_VEL, VEL_Y       * give the frog an upward kick
+    MOVE.L  #0, ON_GROUND          * frog is now in the air
     BRA     SP_HELD
 
-    * --- RED: blast - repel all red flies, despawn if close ---
+    * RED mode - blast
 SP_TRY_RED:
     CMP.L   #COL_RED, D0
     BNE     SP_TRY_BLUE
     TST.L   PREV_SP_STATE
-    BNE     DO_PHYSICS          * hold does nothing, edge only
-    JSR     DO_RED_BLAST
+    BNE     DO_PHYSICS              * only blast on first press, not while holding
+    JSR     DO_RED_BLAST            * shoot all red flies off the top of the screen
     BRA     SP_HELD
 
     * --- BLUE: attract blue flies toward frog (held) ---
 SP_TRY_BLUE:
-    JSR     DO_BLUE_ATTRACT
+    JSR     DO_BLUE_ATTRACT         * pull blue flies toward the frog while space is held
 
 SP_HELD:
-    MOVE.L  #1, PREV_SP_STATE
+    MOVE.L  #1, PREV_SP_STATE       * remember space is held
     BRA     DO_PHYSICS
 
 SP_NOT_PRESSED:
-    MOVE.L  #0, PREV_SP_STATE
+    MOVE.L  #0, PREV_SP_STATE       * space not held, reset so next press works
 
 DO_PHYSICS:
-    TST.L   ON_GROUND
+    TST.L   ON_GROUND               * already on the ground? skip all this
     BNE     PHYS_SKIP
     MOVE.L  VEL_Y, D0
-    ADD.L   #GRAVITY, D0
+    ADD.L   #GRAVITY, D0           * gravity pulls the frog down a bit each frame
     MOVE.L  D0, VEL_Y
     MOVE.L  PLAYER_Y, D1
-    ADD.L   D0, D1
-    CMP.L   #GROUND_Y, D1
-    BLE     PHYS_APPLY
-    MOVE.L  #GROUND_Y, D1
-    MOVE.L  #0, VEL_Y
-    MOVE.L  #1, ON_GROUND
+    ADD.L   D0, D1                  * move the frog by its current speed
+    CMP.L   #GROUND_Y, D1          * has it hit the ground?
+    BLE     PHYS_APPLY              * not yet
+    MOVE.L  #GROUND_Y, D1          * yes - snap it to the ground
+    MOVE.L  #0, VEL_Y              * stop moving
+    MOVE.L  #1, ON_GROUND          * tell the game its landed
 PHYS_APPLY:
     MOVE.L  D1, PLAYER_Y
 PHYS_SKIP:
 
-    JSR     MAYBE_SPAWN
-    JSR     MOVE_ALL_FLIES
-    JSR     CHECK_ALL_COL
+    JSR     MAYBE_SPAWN             * maybe add a new fly to the screen
+    JSR     MOVE_ALL_FLIES          * move every fly along
+    JSR     CHECK_ALL_COL           * check if the frog has touched any fly
 
-    * Update high score
-    MOVE.L  SCORE, D0
+    * Save the score if its a new best
+    MOVE.L  SCORE, D0               * is the current score better than the best?
     MOVE.L  HIGH_SCORE, D1
     CMP.L   D1, D0
-    BLE     NO_HS
-    MOVE.L  D0, HIGH_SCORE
+    BLE     NO_HS                   * no, leave it
+    MOVE.L  D0, HIGH_SCORE          * yes, save it as the new best
 NO_HS:
 
-    * Draw everything to back buffer
+    * Draw everything
     JSR     DRAW_BACKGROUND
     JSR     DRAW_ALL_FLIES
-    JSR     DRAW_FROG
+    * Draw the frog (with or without moustache)
+    TST.L   MUSTACHE_FLAG           * did the player type "filip" as their name?
+    BNE     DO_MUSTACHE_DRAW        * yes - draw the moustache frog
+    JSR     DRAW_FROG               * no - draw the normal frog
+    BRA     AFTER_FROG_DRAW
+DO_MUSTACHE_DRAW:
+    JSR     DRAW_FROG_M             * draw frog with a moustache
+AFTER_FROG_DRAW:
     JSR     DRAW_HUD
 
-    * Flip buffer to screen
-    MOVE.B  #94,    D0
+    * Show everything we just drew
+    MOVE.B  #94,    D0              * put what we drew onto the screen
     TRAP    #15
 
-    * Delay
+
+    * Short delay to keep the game running at a reasonable speed
     MOVE.L  #15000, D1
 DLY:
     SUB.L   #1, D1
     BNE     DLY
 
-    * Game over check
-    MOVE.L  HEALTH, D0
-    BNE     GAME_LOOP
+    * Check if the player has run out of health
+    MOVE.L  HEALTH, D0              * is the player still alive?
+    BNE     GAME_LOOP               * yes, keep going
 
 *-----------------------------------------------------------
 * GAME OVER
@@ -350,79 +362,154 @@ DLY:
 GAME_OVER:
     JSR     DRAW_BACKGROUND
 
+    * Dark panel
+    MOVE.L  #$00050A05, D1
+    JSR     SET_PEN_COLOR
+    MOVE.L  #$00050A05, D1
+    JSR     SET_FILL_COLOR
+    MOVE.L  #100, D1
+    MOVE.L  #70,  D2
+    MOVE.L  #540, D3
+    MOVE.L  #430, D4
+    MOVE.B  #87,  D0
+    TRAP    #15
+
+    * Red border
+    MOVE.L  #COL_RED_FLY, D1
+    JSR     SET_PEN_COLOR
+    MOVE.L  #$00050A05, D1
+    JSR     SET_FILL_COLOR
+    MOVE.L  #100, D1
+    MOVE.L  #70,  D2
+    MOVE.L  #540, D3
+    MOVE.L  #430, D4
+    MOVE.B  #90,  D0
+    TRAP    #15
+
+    * GAME OVER
+    MOVE.L  #COL_RED_FLY, D1
+    JSR     SET_PEN_COLOR
+    LEA     STR_GO, A1
+    MOVE.L  #218, D1
+    MOVE.L  #88,  D2
+    MOVE.B  #95,  D0
+    TRAP    #15
+
+    * Divider
     MOVE.L  #COL_RED_FLY, D1
     JSR     SET_PEN_COLOR
     MOVE.L  #COL_RED_FLY, D1
     JSR     SET_FILL_COLOR
-    MOVE.L  #220, D1
-    MOVE.L  #160, D2
-    MOVE.L  #420, D3
-    MOVE.L  #200, D4
-    MOVE.B  #87, D0
+    MOVE.L  #115, D1
+    MOVE.L  #116, D2
+    MOVE.L  #525, D3
+    MOVE.L  #118, D4
+    MOVE.B  #87,  D0
     TRAP    #15
 
+    * "Well played," in white then name in green
     MOVE.L  #COL_WHITE, D1
     JSR     SET_PEN_COLOR
-    LEA     STR_GO, A1
-    MOVE.L  #240, D1
-    MOVE.L  #170, D2
-    MOVE.B  #95, D0
+    LEA     STR_WELLPLAYED, A1
+    MOVE.L  #125, D1
+    MOVE.L  #135, D2
+    MOVE.B  #95,  D0
     TRAP    #15
 
+    MOVE.L  #COL_GREEN_FLY, D1
+    JSR     SET_PEN_COLOR
+    LEA     FROG_NAME, A1
+    MOVE.L  #330, D1
+    MOVE.L  #135, D2
+    MOVE.B  #95,  D0
+    TRAP    #15
+
+    * Score section label + number
     MOVE.L  #COL_SCORE_C, D1
     JSR     SET_PEN_COLOR
-    LEA     STR_SCORE, A1
-    MOVE.L  #200, D1
-    MOVE.L  #220, D2
-    MOVE.B  #95, D0
+    LEA     STR_YRSCORE, A1
+    MOVE.L  #125, D1
+    MOVE.L  #175, D2
+    MOVE.B  #95,  D0
+    TRAP    #15
+    MOVE.L  SCORE, D0
+    JSR     INT_TO_STR
+    LEA     NUM_BUF, A1
+    MOVE.L  #260, D1
+    MOVE.L  #175, D2
+    MOVE.B  #95,  D0
     TRAP    #15
 
-    * Draw score number as text via task 15 workaround
-    * Store score as string - use task 95 with number
-    * Easy68K task 15 writes to text console not graphics
-    * So we draw score digit boxes instead
-    JSR     DRAW_SCORE_GRAPHIC
-
+    * High score section label + number
     MOVE.L  #COL_YELLOW, D1
     JSR     SET_PEN_COLOR
-    LEA     STR_BEST, A1
-    MOVE.L  #200, D1
-    MOVE.L  #250, D2
-    MOVE.B  #95, D0
+    LEA     STR_HISCORE, A1
+    MOVE.L  #125, D1
+    MOVE.L  #210, D2
+    MOVE.B  #95,  D0
+    TRAP    #15
+    MOVE.L  HIGH_SCORE, D0
+    JSR     INT_TO_STR
+    LEA     NUM_BUF, A1
+    MOVE.L  #260, D1
+    MOVE.L  #210, D2
+    MOVE.B  #95,  D0
     TRAP    #15
 
-    JSR     DRAW_HISCORE_GRAPHIC
-
-    MOVE.L  #COL_WHITE, D1
+    * New high score message
+    MOVE.L  SCORE, D0
+    MOVE.L  HIGH_SCORE, D1
+    CMP.L   D1, D0
+    BNE     GO_NO_NHS
+    MOVE.L  #COL_YELLOW, D1
     JSR     SET_PEN_COLOR
-    LEA     STR_RESTART, A1
-    MOVE.L  #175, D1
-    MOVE.L  #300, D2
-    MOVE.B  #95, D0
+    LEA     STR_NEWHS, A1
+    MOVE.L  #195, D1
+    MOVE.L  #290, D2
+    MOVE.B  #95,  D0
+    TRAP    #15
+GO_NO_NHS:
+
+    * Play again box
+    MOVE.L  #COL_GREEN_FLY, D1
+    JSR     SET_PEN_COLOR
+    MOVE.L  #$00081208, D1
+    JSR     SET_FILL_COLOR
+    MOVE.L  #185, D1
+    MOVE.L  #358, D2
+    MOVE.L  #455, D3
+    MOVE.L  #382, D4
+    MOVE.B  #87,  D0
+    TRAP    #15
+    MOVE.L  #COL_GREEN_FLY, D1
+    JSR     SET_PEN_COLOR
+    LEA     STR_AGAIN, A1
+    MOVE.L  #193, D1
+    MOVE.L  #364, D2
+    MOVE.B  #95,  D0
     TRAP    #15
 
-    MOVE.B  #94, D0
+    MOVE.B  #94,  D0
     TRAP    #15
 
-WAIT_SP:
+GO_WAIT:
+    * Wait for space, then go back to the start screen
     MOVE.L  #' '<<24, D1
     MOVE.B  #19, D0
     TRAP    #15
     BTST.L  #31, D1
-    BEQ     WAIT_SP
+    BEQ     GO_WAIT                 * keep waiting until SPACE pressed
 
-    JSR     RESET_GAME
-    JSR     INIT_FLIES
-    BRA     GAME_LOOP
+    * Go back to the start screen
+    JMP     SHOW_START
 
 *-----------------------------------------------------------
 * RESET_GAME
+* Puts everything back to how it was at the start of a round.
 *-----------------------------------------------------------
 RESET_GAME:
     MOVE.L  #294,        PLAYER_X
     MOVE.L  #GROUND_Y,   PLAYER_Y
-    MOVE.L  #0,          PLYR_DIRECTION_X
-    MOVE.L  #0,          IS_FLIPPED
     MOVE.L  #0,          COLOUR_STATE
     MOVE.L  #0,          PREV_C_STATE
     MOVE.L  #0,          PREV_SP_STATE
@@ -433,13 +520,13 @@ RESET_GAME:
     MOVE.L  #MAX_HEALTH, HEALTH
     MOVE.L  #0,          SCORE
     MOVE.L  #0,          HIT_COOLDOWN
-    MOVE.L  #0,          REPEL_TIMER
     MOVE.L  #0,          FRAME_COUNT
     MOVE.L  #0,          WING_TIMER
     RTS
 
 *-----------------------------------------------------------
 * INIT_FLIES
+* Clears all the flies off the screen ready for a new round.
 *-----------------------------------------------------------
 INIT_FLIES:
     MOVE.L  #0, RF0_ACT
@@ -461,11 +548,12 @@ INIT_FLIES:
 
 *-----------------------------------------------------------
 * MAYBE_SPAWN
+* Checks if its time to add a new fly to the screen.
 *-----------------------------------------------------------
 MAYBE_SPAWN:
     MOVE.L  FRAME_COUNT, D0
 
-    * Spawn red fly every 80 frames
+    * Spawn a red fly every 80 frames
     MOVE.L  D0, D1
     DIVU    #80, D1
     SWAP    D1
@@ -474,7 +562,7 @@ MAYBE_SPAWN:
     JSR     SPAWN_RED
 
 CHK_BLUE_SP:
-    * Spawn blue fly every 100 frames
+    * Spawn a blue fly every 100 frames
     MOVE.L  D0, D1
     DIVU    #100, D1
     SWAP    D1
@@ -483,7 +571,7 @@ CHK_BLUE_SP:
     JSR     SPAWN_BLUE
 
 CHK_GREEN_SP:
-    * Spawn green fly every 60 frames
+    * Spawn a green fly every 60 frames
     MOVE.L  D0, D1
     DIVU    #60, D1
     SWAP    D1
@@ -496,103 +584,128 @@ SPAWN_DONE:
 
 *-----------------------------------------------------------
 * SPAWN_RED
+* Tries to add a red fly. If all 3 slots are taken, does nothing.
 *-----------------------------------------------------------
 SPAWN_RED:
+    JSR     CALC_SPEED
     TST.L   RF0_ACT
     BNE     TRY_RF1
-    MOVE.L  #0,    RF0_X
+    MOVE.L  #0,         RF0_X
     MOVE.L  #GROUND_Y,  RF0_Y
-    MOVE.L  #3,    RF0_DX
-    MOVE.L  #0,    RF0_DY
-    MOVE.L  #1,    RF0_ACT
+    MOVE.L  D0,         RF0_DX
+    MOVE.L  #0,         RF0_DY
+    MOVE.L  #1,         RF0_ACT
     RTS
 TRY_RF1:
     TST.L   RF1_ACT
     BNE     TRY_RF2
-    MOVE.L  #0,    RF1_X
+    MOVE.L  #0,         RF1_X
     MOVE.L  #GROUND_Y,  RF1_Y
-    MOVE.L  #4,    RF1_DX
-    MOVE.L  #0,    RF1_DY
-    MOVE.L  #1,    RF1_ACT
+    MOVE.L  D0,         RF1_DX
+    MOVE.L  #0,         RF1_DY
+    MOVE.L  #1,         RF1_ACT
     RTS
 TRY_RF2:
     TST.L   RF2_ACT
     BNE     SPRED_DONE
-    MOVE.L  #0,    RF2_X
+    MOVE.L  #0,         RF2_X
     MOVE.L  #GROUND_Y,  RF2_Y
-    MOVE.L  #3,    RF2_DX
-    MOVE.L  #0,    RF2_DY
-    MOVE.L  #1,    RF2_ACT
+    MOVE.L  D0,         RF2_DX
+    MOVE.L  #0,         RF2_DY
+    MOVE.L  #1,         RF2_ACT
 SPRED_DONE:
     RTS
 
 *-----------------------------------------------------------
 * SPAWN_BLUE
+* Tries to add a blue fly. If all 3 slots are taken, does nothing.
 *-----------------------------------------------------------
 SPAWN_BLUE:
+    JSR     CALC_SPEED
     TST.L   BF0_ACT
     BNE     TRY_BF1
-    MOVE.L  #0,    BF0_X
+    MOVE.L  #0,         BF0_X
     MOVE.L  #GROUND_Y,  BF0_Y
-    MOVE.L  #4,    BF0_DX
-    MOVE.L  #1,    BF0_ACT
+    MOVE.L  D0,         BF0_DX
+    MOVE.L  #1,         BF0_ACT
     RTS
 TRY_BF1:
     TST.L   BF1_ACT
     BNE     TRY_BF2
-    MOVE.L  #0,    BF1_X
+    MOVE.L  #0,         BF1_X
     MOVE.L  #GROUND_Y,  BF1_Y
-    MOVE.L  #3,    BF1_DX
-    MOVE.L  #1,    BF1_ACT
+    MOVE.L  D0,         BF1_DX
+    MOVE.L  #1,         BF1_ACT
     RTS
 TRY_BF2:
     TST.L   BF2_ACT
     BNE     SPBLU_DONE
-    MOVE.L  #0,    BF2_X
+    MOVE.L  #0,         BF2_X
     MOVE.L  #GROUND_Y,  BF2_Y
-    MOVE.L  #4,    BF2_DX
-    MOVE.L  #1,    BF2_ACT
+    MOVE.L  D0,         BF2_DX
+    MOVE.L  #1,         BF2_ACT
 SPBLU_DONE:
     RTS
 
 *-----------------------------------------------------------
-* SPAWN_GREEN - ground level flies, jump over for points
+* SPAWN_GREEN
+* Tries to add a green fly. Jump over them for points.
 *-----------------------------------------------------------
 SPAWN_GREEN:
+    JSR     CALC_SPEED
     TST.L   GF0_ACT
     BNE     TRY_GF1
-    MOVE.L  #0,    GF0_X
+    MOVE.L  #0,         GF0_X
     MOVE.L  #GROUND_Y,  GF0_Y
-    MOVE.L  #3,    GF0_DX
-    MOVE.L  #0,    GF0_ACT
-    MOVE.L  #0,    GF0_JUMPED
-    MOVE.L  #1,    GF0_ACT
+    MOVE.L  D0,         GF0_DX
+    MOVE.L  #0,         GF0_JUMPED
+    MOVE.L  #1,         GF0_ACT
     RTS
 TRY_GF1:
     TST.L   GF1_ACT
     BNE     TRY_GF2
-    MOVE.L  #0,    GF1_X
+    MOVE.L  #0,         GF1_X
     MOVE.L  #GROUND_Y,  GF1_Y
-    MOVE.L  #4,    GF1_DX
-    MOVE.L  #0,    GF1_JUMPED
-    MOVE.L  #1,    GF1_ACT
+    MOVE.L  D0,         GF1_DX
+    MOVE.L  #0,         GF1_JUMPED
+    MOVE.L  #1,         GF1_ACT
     RTS
 TRY_GF2:
     TST.L   GF2_ACT
     BNE     SPGRN_DONE
-    MOVE.L  #0,    GF2_X
+    MOVE.L  #0,         GF2_X
     MOVE.L  #GROUND_Y,  GF2_Y
-    MOVE.L  #3,    GF2_DX
-    MOVE.L  #0,    GF2_JUMPED
-    MOVE.L  #1,    GF2_ACT
+    MOVE.L  D0,         GF2_DX
+    MOVE.L  #0,         GF2_JUMPED
+    MOVE.L  #1,         GF2_ACT
 SPGRN_DONE:
     RTS
 
 *-----------------------------------------------------------
+* CALC_SPEED
+* Figures out how fast flies should move right now.
+* Starts slow and gets faster as your score goes up.
+*-----------------------------------------------------------
+CALC_SPEED:
+    * Works out how fast new flies should move based on your score.
+    * Starts at speed 3 and goes up by 1 every 50 points, max speed is 8.
+    MOVE.L  SCORE, D0
+    DIVU    #50, D0             * every 50 points adds 1 to the speed
+    AND.L   #$FFFF, D0          * drop the leftover, keep the whole number
+    ADD.L   #3, D0              * add the starting speed of 3
+    CMP.L   #8, D0              * is it over the limit?
+    BLE     CS_DONE
+    MOVE.L  #8, D0              * yes, stop it at 8
+CS_DONE:
+    RTS
+
+*-----------------------------------------------------------
 * MOVE_ALL_FLIES
+* Moves every active fly along by its speed. Also removes flies
+* that have gone off the right side or top of the screen.
 *-----------------------------------------------------------
 MOVE_ALL_FLIES:
-    * RF0 - move X and Y (DY set when blasted)
+    * Red fly 0 - move it, then remove it if it left the screen
     TST.L   RF0_ACT
     BEQ     MRF1
     MOVE.L  RF0_X, D0
@@ -603,7 +716,7 @@ MOVE_ALL_FLIES:
     MOVE.L  D1, RF0_Y
     CMP.L   #660, D0
     BGT     KILL_RF0
-    CMP.L   #-10, D1            * flew off top of screen
+    CMP.L   #-10, D1            * gone off the top of the screen
     BGE     MRF1
 KILL_RF0:
     MOVE.L  #0, RF0_ACT
@@ -667,7 +780,7 @@ MBF2:
     CMP.L   #660, D0
     BLE     MGF0
     MOVE.L  #0, BF2_ACT
-    * Green flies
+    * Green flies - same deal
 MGF0:
     TST.L   GF0_ACT
     BEQ     MGF1
@@ -700,6 +813,7 @@ MALL_DONE:
 
 *-----------------------------------------------------------
 * CHECK_ALL_COL
+* Goes through every fly and checks if the frog is touching it.
 *-----------------------------------------------------------
 CHECK_ALL_COL:
     MOVE.L  COLOUR_STATE, D6
@@ -787,10 +901,21 @@ CAC_DONE:
     MOVE.L  #0, GF0_ACT
     BRA     CAC_GF1
 CAC_GF0_JUMP:
+    * Only give points if the frog is close enough horizontally
+    MOVE.L  PLAYER_X, D0
+    ADD.L   #26, D0             * middle of the frog
+    MOVE.L  GF0_X, D1
+    SUB.L   D1, D0              * how far apart are they
+    BGE     GF0_XOK
+    NEG.L   D0
+GF0_XOK:
+    CMP.L   #40, D0
+    BGT     CAC_GF0_NOJUMP      * too far apart to count
+    * Also check the frog is actually above the fly
     MOVE.L  PLAYER_Y, D0
     MOVE.L  GF0_Y, D1
     CMP.L   D1, D0
-    BGE     CAC_GF0_NOJUMP
+    BGE     CAC_GF0_NOJUMP      * frog is at the same level or below, doesnt count
     TST.L   GF0_JUMPED
     BNE     CAC_GF1
     MOVE.L  #1, GF0_JUMPED
@@ -812,6 +937,15 @@ CAC_GF1:
     MOVE.L  #0, GF1_ACT
     BRA     CAC_GF2
 CAC_GF1_JUMP:
+    MOVE.L  PLAYER_X, D0
+    ADD.L   #26, D0
+    MOVE.L  GF1_X, D1
+    SUB.L   D1, D0
+    BGE     GF1_XOK
+    NEG.L   D0
+GF1_XOK:
+    CMP.L   #40, D0
+    BGT     CAC_GF1_NOJUMP
     MOVE.L  PLAYER_Y, D0
     MOVE.L  GF1_Y, D1
     CMP.L   D1, D0
@@ -837,6 +971,15 @@ CAC_GF2:
     MOVE.L  #0, GF2_ACT
     BRA     CAC_ALL_DONE
 CAC_GF2_JUMP:
+    MOVE.L  PLAYER_X, D0
+    ADD.L   #26, D0
+    MOVE.L  GF2_X, D1
+    SUB.L   D1, D0
+    BGE     GF2_XOK
+    NEG.L   D0
+GF2_XOK:
+    CMP.L   #40, D0
+    BGT     CAC_GF2_NOJUMP
     MOVE.L  PLAYER_Y, D0
     MOVE.L  GF2_Y, D1
     CMP.L   D1, D0
@@ -855,48 +998,45 @@ CAC_ALL_DONE:
 
 *-----------------------------------------------------------
 * DO_RED_BLAST
-* Edge-triggered on Space in RED mode.
-* All active red flies get a strong upward velocity - they
-* fly straight off the top of the screen and despawn.
+* When you press space in red mode, all the red flies
+* shoot straight up and disappear off the top of the screen.
 *-----------------------------------------------------------
 DO_RED_BLAST:
     TST.L   RF0_ACT
     BEQ     BLAST_RF1
-    MOVE.L  #0,    RF0_DX      * stop horizontal movement
-    MOVE.L  #-12,  RF0_DY      * shoot upward fast
+    MOVE.L  #0,    RF0_DX      * stop moving sideways
+    MOVE.L  #-12,  RF0_DY      * shoot it up fast
 BLAST_RF1:
     TST.L   RF1_ACT
     BEQ     BLAST_RF2
-    MOVE.L  #0,    RF1_DX
-    MOVE.L  #-12,  RF1_DY
+    MOVE.L  #0,    RF1_DX      * stop moving sideways
+    MOVE.L  #-12,  RF1_DY      * shoot it up fast
 BLAST_RF2:
     TST.L   RF2_ACT
     BEQ     BLAST_DONE
-    MOVE.L  #0,    RF2_DX
-    MOVE.L  #-12,  RF2_DY
+    MOVE.L  #0,    RF2_DX      * stop moving sideways
+    MOVE.L  #-12,  RF2_DY      * shoot it up fast
 BLAST_DONE:
-    MOVE.L  #30, REPEL_TIMER
     RTS
 
 *-----------------------------------------------------------
 * DO_BLUE_ATTRACT
-* Called every frame Space is held in BLUE mode.
-* Moves each active blue fly 3px toward frog centre X.
-* If fly overlaps frog, absorb it for points.
+* While you hold space in blue mode, blue flies slide
+* toward the frog. If they reach it they get absorbed for points.
 *-----------------------------------------------------------
 DO_BLUE_ATTRACT:
     MOVE.L  PLAYER_X, D3
-    ADD.L   #26, D3             * frog centre X
+    ADD.L   #26, D3             * middle of the frog
 
     * BF0
     TST.L   BF0_ACT
     BEQ     ATTR_BF1
     MOVE.L  BF0_X, D1
-    ADD.L   #5, D1              * fly centre X
+    ADD.L   #5, D1              * middle of the fly
     CMP.L   D3, D1
-    BEQ     ATTR_BF0_CHECK      * already at centre
-    BGT     ATTR_BF0_LEFT       * fly is right of frog, move left
-    * fly is left of frog, move right
+    BEQ     ATTR_BF0_CHECK      * fly is already right on the frog
+    BGT     ATTR_BF0_LEFT       * fly is to the right, so move it left
+    * fly is to the left, move it right
     MOVE.L  BF0_X, D0
     ADD.L   #3, D0
     MOVE.L  D0, BF0_X
@@ -906,7 +1046,7 @@ ATTR_BF0_LEFT:
     SUB.L   #3, D0
     MOVE.L  D0, BF0_X
 ATTR_BF0_CHECK:
-    * Absorb if overlapping frog
+    * Check if the fly has reached the frog
     MOVE.L  BF0_X, COL_FLY_X
     MOVE.L  BF0_Y, COL_FLY_Y
     JSR     TEST_HIT
@@ -923,8 +1063,8 @@ ATTR_BF1:
     MOVE.L  BF1_X, D1
     ADD.L   #5, D1
     CMP.L   D3, D1
-    BEQ     ATTR_BF1_CHECK
-    BGT     ATTR_BF1_LEFT
+    BEQ     ATTR_BF1_CHECK      * already on the frog
+    BGT     ATTR_BF1_LEFT       * fly is to the right, move it left
     MOVE.L  BF1_X, D0
     ADD.L   #3, D0
     MOVE.L  D0, BF1_X
@@ -950,8 +1090,8 @@ ATTR_BF2:
     MOVE.L  BF2_X, D1
     ADD.L   #5, D1
     CMP.L   D3, D1
-    BEQ     ATTR_BF2_CHECK
-    BGT     ATTR_BF2_LEFT
+    BEQ     ATTR_BF2_CHECK      * already on the frog
+    BGT     ATTR_BF2_LEFT       * fly is to the right, move it left
     MOVE.L  BF2_X, D0
     ADD.L   #3, D0
     MOVE.L  D0, BF2_X
@@ -976,20 +1116,24 @@ ATTR_DONE:
 
 *-----------------------------------------------------------
 * DO_DAMAGE
+* Takes away one health pip when the frog gets hit.
+* Has a short cooldown so one touch doesnt drain all your health.
 *-----------------------------------------------------------
 DO_DAMAGE:
-    MOVE.L  HIT_COOLDOWN, D0
-    BNE     DMG_SKIP
+    MOVE.L  HIT_COOLDOWN, D0        * are we still in the brief no-damage window after last hit?
+    BNE     DMG_SKIP                * yes - ignore this hit
     MOVE.L  HEALTH, D0
-    SUB.L   #1, D0
+    SUB.L   #1, D0                  * lose one health pip
     MOVE.L  D0, HEALTH
-    MOVE.L  #60, HIT_COOLDOWN
+    MOVE.L  #10, HIT_COOLDOWN      * wait 10 frames before taking damage again
 DMG_SKIP:
     RTS
 
 *-----------------------------------------------------------
-* TEST_HIT  uses COL_FLY_X/Y vs PLAYER_X/Y
-* Returns D0=1 hit, D0=0 miss
+* TEST_HIT
+* Checks if the frog is touching a fly.
+* Uses the positions in COL_FLY_X/Y and PLAYER_X/Y.
+* Returns D0=1 if touching, D0=0 if not.
 *-----------------------------------------------------------
 TEST_HIT:
     MOVE.L  COL_FLY_X, D1
@@ -1020,537 +1164,21 @@ TH_MISS:
     MOVE.L  #0, D0
     RTS
 
-*-----------------------------------------------------------
-* DRAW_BACKGROUND
-* Fills sky and ground into back buffer
-*-----------------------------------------------------------
-DRAW_BACKGROUND:
-    MOVE.L  #COL_BG, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_BG, D1
-    JSR     SET_FILL_COLOR
-    MOVE.L  #0,   D1
-    MOVE.L  #0,   D2
-    MOVE.L  #639, D3
-    MOVE.L  #GROUND_Y+20, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-
-    MOVE.L  #COL_GROUND, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_GROUND, D1
-    JSR     SET_FILL_COLOR
-    MOVE.L  #0,   D1
-    MOVE.L  #GROUND_Y+20, D2
-    MOVE.L  #639, D3
-    MOVE.L  #479, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-
-    MOVE.L  #COL_GROUND_LT, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_GROUND_LT, D1
-    JSR     SET_FILL_COLOR
-    MOVE.L  #0,   D1
-    MOVE.L  #GROUND_Y+20, D2
-    MOVE.L  #639, D3
-    MOVE.L  #GROUND_Y+26, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    RTS
-
-*-----------------------------------------------------------
-* DRAW_ALL_FLIES
-*-----------------------------------------------------------
-DRAW_ALL_FLIES:
-    MOVE.L  WING_TIMER, D6
-    CMP.L   #4, D6
-    BLT     DAFW_UP
-    MOVE.L  #2, D6
-    BRA     DAFW_SET
-DAFW_UP:
-    MOVE.L  #-2, D6
-DAFW_SET:
-    TST.L   RF0_ACT
-    BEQ     DAF_RF1
-    MOVE.L  RF0_X, COL_FLY_X
-    MOVE.L  RF0_Y, COL_FLY_Y
-    JSR     DRAW_RED_FLY
-DAF_RF1:
-    TST.L   RF1_ACT
-    BEQ     DAF_RF2
-    MOVE.L  RF1_X, COL_FLY_X
-    MOVE.L  RF1_Y, COL_FLY_Y
-    JSR     DRAW_RED_FLY
-DAF_RF2:
-    TST.L   RF2_ACT
-    BEQ     DAF_BF0
-    MOVE.L  RF2_X, COL_FLY_X
-    MOVE.L  RF2_Y, COL_FLY_Y
-    JSR     DRAW_RED_FLY
-DAF_BF0:
-    TST.L   BF0_ACT
-    BEQ     DAF_BF1
-    MOVE.L  BF0_X, COL_FLY_X
-    MOVE.L  BF0_Y, COL_FLY_Y
-    JSR     DRAW_BLUE_FLY
-DAF_BF1:
-    TST.L   BF1_ACT
-    BEQ     DAF_BF2
-    MOVE.L  BF1_X, COL_FLY_X
-    MOVE.L  BF1_Y, COL_FLY_Y
-    JSR     DRAW_BLUE_FLY
-DAF_BF2:
-    TST.L   BF2_ACT
-    BEQ     DAF_GF0
-    MOVE.L  BF2_X, COL_FLY_X
-    MOVE.L  BF2_Y, COL_FLY_Y
-    JSR     DRAW_BLUE_FLY
-DAF_GF0:
-    TST.L   GF0_ACT
-    BEQ     DAF_GF1
-    MOVE.L  GF0_X, COL_FLY_X
-    MOVE.L  GF0_Y, COL_FLY_Y
-    JSR     DRAW_GREEN_FLY
-DAF_GF1:
-    TST.L   GF1_ACT
-    BEQ     DAF_GF2
-    MOVE.L  GF1_X, COL_FLY_X
-    MOVE.L  GF1_Y, COL_FLY_Y
-    JSR     DRAW_GREEN_FLY
-DAF_GF2:
-    TST.L   GF2_ACT
-    BEQ     DAF_DONE
-    MOVE.L  GF2_X, COL_FLY_X
-    MOVE.L  GF2_Y, COL_FLY_Y
-    JSR     DRAW_GREEN_FLY
-DAF_DONE:
-    RTS
-
-*-----------------------------------------------------------
-* DRAW_RED_FLY  reads COL_FLY_X/Y, D6=wing offset
-*-----------------------------------------------------------
-DRAW_RED_FLY:
-    MOVE.L  #COL_WING_R, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_WING_R, D1
-    JSR     SET_FILL_COLOR
-    * Left wing
-    MOVE.L  COL_FLY_X, D1
-    SUB.L   #4, D1
-    MOVE.L  COL_FLY_Y, D2
-    ADD.L   D6, D2
-    MOVE.L  COL_FLY_X, D3
-    MOVE.L  D2, D4
-    ADD.L   #4, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    * Right wing
-    MOVE.L  COL_FLY_X, D1
-    ADD.L   #FLY_W, D1
-    MOVE.L  COL_FLY_Y, D2
-    ADD.L   D6, D2
-    MOVE.L  D1, D3
-    ADD.L   #4, D3
-    MOVE.L  D2, D4
-    ADD.L   #4, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    * Body
-    MOVE.L  #COL_RED_FLY, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_RED_FLY, D1
-    JSR     SET_FILL_COLOR
-    MOVE.L  COL_FLY_X, D1
-    MOVE.L  COL_FLY_Y, D2
-    MOVE.L  D1, D3
-    ADD.L   #FLY_W, D3
-    MOVE.L  D2, D4
-    ADD.L   #FLY_H, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    * Eye
-    MOVE.L  #COL_WHITE, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_WHITE, D1
-    JSR     SET_FILL_COLOR
-    MOVE.L  COL_FLY_X, D1
-    ADD.L   #1, D1
-    MOVE.L  COL_FLY_Y, D2
-    ADD.L   #1, D2
-    MOVE.L  D1, D3
-    ADD.L   #2, D3
-    MOVE.L  D2, D4
-    ADD.L   #2, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    RTS
-
-*-----------------------------------------------------------
-* DRAW_BLUE_FLY  reads COL_FLY_X/Y, D6=wing offset
-*-----------------------------------------------------------
-DRAW_BLUE_FLY:
-    MOVE.L  #COL_WING_B, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_WING_B, D1
-    JSR     SET_FILL_COLOR
-    * Left wing
-    MOVE.L  COL_FLY_X, D1
-    SUB.L   #4, D1
-    MOVE.L  COL_FLY_Y, D2
-    ADD.L   D6, D2
-    MOVE.L  COL_FLY_X, D3
-    MOVE.L  D2, D4
-    ADD.L   #4, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    * Right wing
-    MOVE.L  COL_FLY_X, D1
-    ADD.L   #FLY_W, D1
-    MOVE.L  COL_FLY_Y, D2
-    ADD.L   D6, D2
-    MOVE.L  D1, D3
-    ADD.L   #4, D3
-    MOVE.L  D2, D4
-    ADD.L   #4, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    * Body
-    MOVE.L  #COL_BLUE_FLY, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_BLUE_FLY, D1
-    JSR     SET_FILL_COLOR
-    MOVE.L  COL_FLY_X, D1
-    MOVE.L  COL_FLY_Y, D2
-    MOVE.L  D1, D3
-    ADD.L   #FLY_W, D3
-    MOVE.L  D2, D4
-    ADD.L   #FLY_H, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    * Eye
-    MOVE.L  #COL_WHITE, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_WHITE, D1
-    JSR     SET_FILL_COLOR
-    MOVE.L  COL_FLY_X, D1
-    ADD.L   #1, D1
-    MOVE.L  COL_FLY_Y, D2
-    ADD.L   #1, D2
-    MOVE.L  D1, D3
-    ADD.L   #2, D3
-    MOVE.L  D2, D4
-    ADD.L   #2, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    RTS
-
-*-----------------------------------------------------------
-* DRAW_GREEN_FLY  reads COL_FLY_X/Y, D6=wing offset
-* Ground-level fly - slightly larger to be visible
-*-----------------------------------------------------------
-DRAW_GREEN_FLY:
-    * Left wing
-    MOVE.L  #COL_WING_G, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_WING_G, D1
-    JSR     SET_FILL_COLOR
-    MOVE.L  COL_FLY_X, D1
-    SUB.L   #5, D1
-    MOVE.L  COL_FLY_Y, D2
-    ADD.L   D6, D2
-    MOVE.L  COL_FLY_X, D3
-    MOVE.L  D2, D4
-    ADD.L   #5, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    * Right wing
-    MOVE.L  COL_FLY_X, D1
-    ADD.L   #FLY_W, D1
-    MOVE.L  COL_FLY_Y, D2
-    ADD.L   D6, D2
-    MOVE.L  D1, D3
-    ADD.L   #5, D3
-    MOVE.L  D2, D4
-    ADD.L   #5, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    * Body
-    MOVE.L  #COL_GREEN_FLY, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_GREEN_FLY, D1
-    JSR     SET_FILL_COLOR
-    MOVE.L  COL_FLY_X, D1
-    MOVE.L  COL_FLY_Y, D2
-    MOVE.L  D1, D3
-    ADD.L   #FLY_W, D3
-    MOVE.L  D2, D4
-    ADD.L   #FLY_H, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    * Eye
-    MOVE.L  #COL_WHITE, D1
-    JSR     SET_PEN_COLOR
-    MOVE.L  #COL_WHITE, D1
-    JSR     SET_FILL_COLOR
-    MOVE.L  COL_FLY_X, D1
-    ADD.L   #1, D1
-    MOVE.L  COL_FLY_Y, D2
-    ADD.L   #1, D2
-    MOVE.L  D1, D3
-    ADD.L   #2, D3
-    MOVE.L  D2, D4
-    ADD.L   #2, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    RTS
-
-*-----------------------------------------------------------
-* DRAW_HUD - health pips, score, mode label, controls
-*-----------------------------------------------------------
-DRAW_HUD:
-    * --- Health pips (5 filled ellipses) ---
-    MOVE.L  HEALTH, D7
-
-    * Pip 1
-    MOVE.L  #COL_HP_EMPTY, D1
-    CMP.L   #1, D7
-    BLT     H1E
-    MOVE.L  #COL_HP_FULL, D1
-H1E:
-    JSR     SET_PEN_COLOR
-    JSR     SET_FILL_COLOR
-    MOVE.L  #8,  D1
-    MOVE.L  #8,  D2
-    MOVE.L  #20, D3
-    MOVE.L  #20, D4
-    MOVE.B  #88, D0
-    TRAP    #15
-
-    * Pip 2
-    MOVE.L  #COL_HP_EMPTY, D1
-    CMP.L   #2, D7
-    BLT     H2E
-    MOVE.L  #COL_HP_FULL, D1
-H2E:
-    JSR     SET_PEN_COLOR
-    JSR     SET_FILL_COLOR
-    MOVE.L  #24, D1
-    MOVE.L  #8,  D2
-    MOVE.L  #36, D3
-    MOVE.L  #20, D4
-    MOVE.B  #88, D0
-    TRAP    #15
-
-    * Pip 3
-    MOVE.L  #COL_HP_EMPTY, D1
-    CMP.L   #3, D7
-    BLT     H3E
-    MOVE.L  #COL_HP_FULL, D1
-H3E:
-    JSR     SET_PEN_COLOR
-    JSR     SET_FILL_COLOR
-    MOVE.L  #40, D1
-    MOVE.L  #8,  D2
-    MOVE.L  #52, D3
-    MOVE.L  #20, D4
-    MOVE.B  #88, D0
-    TRAP    #15
-
-    * Pip 4
-    MOVE.L  #COL_HP_EMPTY, D1
-    CMP.L   #4, D7
-    BLT     H4E
-    MOVE.L  #COL_HP_FULL, D1
-H4E:
-    JSR     SET_PEN_COLOR
-    JSR     SET_FILL_COLOR
-    MOVE.L  #56, D1
-    MOVE.L  #8,  D2
-    MOVE.L  #68, D3
-    MOVE.L  #20, D4
-    MOVE.B  #88, D0
-    TRAP    #15
-
-    * Pip 5
-    MOVE.L  #COL_HP_EMPTY, D1
-    CMP.L   #5, D7
-    BLT     H5E
-    MOVE.L  #COL_HP_FULL, D1
-H5E:
-    JSR     SET_PEN_COLOR
-    JSR     SET_FILL_COLOR
-    MOVE.L  #72, D1
-    MOVE.L  #8,  D2
-    MOVE.L  #84, D3
-    MOVE.L  #20, D4
-    MOVE.B  #88, D0
-    TRAP    #15
-
-    * --- Score label ---
-    MOVE.L  #COL_SCORE_C, D1
-    JSR     SET_PEN_COLOR
-    LEA     STR_SCORE, A1
-    MOVE.L  #8,  D1
-    MOVE.L  #28, D2
-    MOVE.B  #95, D0
-    TRAP    #15
-
-    JSR     DRAW_SCORE_GRAPHIC
-
-    * --- Best label ---
-    MOVE.L  #COL_YELLOW, D1
-    JSR     SET_PEN_COLOR
-    LEA     STR_BEST, A1
-    MOVE.L  #8,  D1
-    MOVE.L  #44, D2
-    MOVE.B  #95, D0
-    TRAP    #15
-
-    JSR     DRAW_HISCORE_GRAPHIC
-
-    * --- Mode label top right ---
-    MOVE.L  COLOUR_STATE, D0
-    CMP.L   #COL_RED, D0
-    BEQ     HUD_SHOW_R
-    CMP.L   #COL_BLUE, D0
-    BEQ     HUD_SHOW_B
-    MOVE.L  #FROG_GREEN_MID_G, D1
-    JSR     SET_PEN_COLOR
-    LEA     STR_MG, A1
-    MOVE.L  #390, D1
-    MOVE.L  #8,   D2
-    MOVE.B  #95, D0
-    TRAP    #15
-    BRA     HUD_CTRL
-HUD_SHOW_R:
-    MOVE.L  #COL_RED_FLY, D1
-    JSR     SET_PEN_COLOR
-    LEA     STR_MR, A1
-    MOVE.L  #390, D1
-    MOVE.L  #8,   D2
-    MOVE.B  #95, D0
-    TRAP    #15
-    BRA     HUD_CTRL
-HUD_SHOW_B:
-    MOVE.L  #COL_BLUE_FLY, D1
-    JSR     SET_PEN_COLOR
-    LEA     STR_MB, A1
-    MOVE.L  #390, D1
-    MOVE.L  #8,   D2
-    MOVE.B  #95, D0
-    TRAP    #15
-
-HUD_CTRL:
-    MOVE.L  #COL_WHITE, D1
-    JSR     SET_PEN_COLOR
-    LEA     STR_CTRL, A1
-    MOVE.L  #60,  D1
-    MOVE.L  #462, D2
-    MOVE.B  #95, D0
-    TRAP    #15
-    RTS
-
-*-----------------------------------------------------------
-* DRAW_SCORE_GRAPHIC
-* Draws SCORE value as a bar of 10-pt wide blocks
-* Each 10 points = one cyan block, max 20 blocks shown
-*-----------------------------------------------------------
-DRAW_SCORE_GRAPHIC:
-    MOVE.L  SCORE, D5
-    MOVE.L  #0, D4          ; block counter
-    MOVE.L  #70, D3         ; X start
-DS_LOOP:
-    CMP.L   #0, D5
-    BLE     DS_DONE
-    CMP.L   #20, D4
-    BGE     DS_DONE
-    MOVE.L  #COL_SCORE_C, D1
-    JSR     SET_PEN_COLOR
-    JSR     SET_FILL_COLOR
-    MOVE.L  D3, D1
-    MOVE.L  #30, D2
-    MOVE.L  D3, D6
-    ADD.L   #8, D6
-    MOVE.L  D6, D3
-    MOVE.L  D1, D6
-    MOVE.L  D3, D7
-    * D1=left D2=top D3=right D4=bottom
-    MOVE.L  D6, D1          ; left
-    MOVE.L  #30, D2         ; top
-    MOVE.L  D7, D3          ; right (left+8)
-    MOVE.L  #40, D4         ; bottom
-    MOVE.B  #87, D0
-    TRAP    #15
-    ADD.L   #10, D3         ; next X
-    SUB.L   #10, D5         ; subtract 10 from score
-    ADD.L   #1,  D4
-    BRA     DS_LOOP
-DS_DONE:
-    RTS
-
-*-----------------------------------------------------------
-* DRAW_HISCORE_GRAPHIC  same style for high score at y=46
-*-----------------------------------------------------------
-DRAW_HISCORE_GRAPHIC:
-    MOVE.L  HIGH_SCORE, D5
-    MOVE.L  #0, D4
-    MOVE.L  #70, D3
-DH_LOOP:
-    CMP.L   #0, D5
-    BLE     DH_DONE
-    CMP.L   #20, D4
-    BGE     DH_DONE
-    MOVE.L  #COL_YELLOW, D1
-    JSR     SET_PEN_COLOR
-    JSR     SET_FILL_COLOR
-    MOVE.L  D3, D1
-    MOVE.L  D3, D6
-    ADD.L   #8, D6
-    MOVE.L  D1, D1
-    MOVE.L  #46, D2
-    MOVE.L  D6, D3
-    MOVE.L  #56, D4
-    MOVE.B  #87, D0
-    TRAP    #15
-    ADD.L   #10, D3
-    SUB.L   #10, D5
-    ADD.L   #1,  D4
-    BRA     DH_LOOP
-DH_DONE:
-    RTS
-
-*-----------------------------------------------------------
-* SET_PEN_COLOR  (D1 = colour)
-*-----------------------------------------------------------
-SET_PEN_COLOR:
-    MOVE.B  #80, D0
-    TRAP    #15
-    RTS
-
-*-----------------------------------------------------------
-* SET_FILL_COLOR  (D1 = colour)
-*-----------------------------------------------------------
-SET_FILL_COLOR:
-    MOVE.B  #81, D0
-    TRAP    #15
-    RTS
-
-*-----------------------------------------------------------
-* Strings (null terminated for task 95)
-*-----------------------------------------------------------
-STR_SCORE:   DC.B  'SCORE:',0
-STR_BEST:    DC.B  'BEST: ',0
-STR_MG:      DC.B  '[GREEN] SPACE=JUMP',0
-STR_MR:      DC.B  '[RED] SPACE=BLAST FLIES',0
-STR_MB:      DC.B  '[BLUE] SPACE=ATTRACT FLIES',0
-STR_CTRL:    DC.B  'A/D=MOVE  C=COLOUR  SPACE=ABILITY  JUMP OVER GREEN FLIES',0
-STR_GO:      DC.B  'GAME OVER',0
-STR_RESTART: DC.B  'Press SPACE to restart',0
-
+    INCLUDE "FROG_DRAW_FLIES.X68"
+    INCLUDE "FROG_DRAW_HUD.X68"
     INCLUDE "FROG_DRAW.X68"
+    INCLUDE "FROG_DRAW_MUSTACHE.X68"
 
-    END     START
+*-----------------------------------------------------------
+* QUIT_GAME
+* ESC was pressed, shut everything down.
+*-----------------------------------------------------------
+QUIT_GAME:
+    MOVE.B  #9, D0
+    TRAP    #15
+
+* No END here - this file is included by FROG_MENU.X68 which has the entry point
+
 
 *~Font name~Courier New~
 *~Font size~10~
