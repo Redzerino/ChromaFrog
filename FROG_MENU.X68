@@ -52,6 +52,29 @@ MENU_START:
 
     MOVE.L  #0, MUSTACHE_FLAG       * make sure the moustache easter egg is off at the start
 
+    * Load all sounds into DirectX memory so they are ready to play
+    * Reference 0 = background music, 1 = jump, 2 = hit
+    LEA     SND_MUSIC, A1
+    MOVE.B  #0, D1
+    MOVE.B  #74, D0
+    TRAP    #15                     * load music.wav as sound 0
+
+    LEA     SND_JUMP, A1
+    MOVE.B  #1, D1
+    MOVE.B  #74, D0
+    TRAP    #15                     * load jump.wav as sound 1
+
+    LEA     SND_HIT, A1
+    MOVE.B  #2, D1
+    MOVE.B  #74, D0
+    TRAP    #15                     * load hit.wav as sound 2
+
+    * Start background music looping straight away
+    MOVE.B  #0, D1
+    MOVE.L  #1, D2                  * 1 = loop
+    MOVE.B  #77, D0
+    TRAP    #15
+
 *=== START SCREEN ==========================================
 SHOW_START:
     JSR     DRAW_START
@@ -577,6 +600,11 @@ STR_NAME_SUB:   DC.B  'What shall your frog be called?',0
 STR_NAME_HINT1: DC.B  'SHIFT+ENTER = confirm name',0
 STR_NAME_HINT2: DC.B  'BACKSPACE = delete',0
 STR_DEFAULT:    DC.B  'Froggy',0
+
+* Sound file paths - WAV files must be in the same folder as the .X68 files
+SND_MUSIC:      DC.B  'music.wav',0
+SND_JUMP:       DC.B  'jump.wav',0
+SND_HIT:        DC.B  'hit.wav',0
 
 *-----------------------------------------------------------
 * QUIT_MENU

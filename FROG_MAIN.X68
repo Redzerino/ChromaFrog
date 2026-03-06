@@ -27,10 +27,10 @@ COL_BLUE            equ 2           * blue mode - frog can pull blue flies in
 * _G = green mode, _R = red mode, _B = blue mode
 FROG_GREEN_MID_G    equ $0038C100    * dark green body colour
 FROG_GREEN_LIGHT_G  equ $0055DD11    * bright green for the shiny bit on top
-FROG_GREEN_MID_B    equ $00CC0000    * dark blue body colour
-FROG_GREEN_LIGHT_B  equ $00FF3300    * bright blue for the shiny bit
-FROG_GREEN_MID_R    equ $000000FF    * dark red body colour
-FROG_GREEN_LIGHT_R  equ $000099FF    * bright red for the shiny bit
+FROG_GREEN_MID_B    equ $00CC0000    * dark red body colour
+FROG_GREEN_LIGHT_B  equ $00FF3300    * bright red for the shiny bit
+FROG_GREEN_MID_R    equ $000000FF    * dark blue body colour
+FROG_GREEN_LIGHT_R  equ $000099FF    * bright blue for the shiny bit
 
 FLY_W               equ 10          * how wide a fly is
 FLY_H               equ 8           * how tall a fly is
@@ -277,6 +277,11 @@ CHECK_JUMP:
     BNE     DO_PHYSICS              * space was already held, dont jump again
     MOVE.L  #JUMP_VEL, VEL_Y       * give the frog an upward kick
     MOVE.L  #0, ON_GROUND          * frog is now in the air
+    * play jump sound (ref 1, once)
+    MOVE.B  #1, D1
+    MOVE.L  #0, D2                  * 0 = play once
+    MOVE.B  #77, D0
+    TRAP    #15
     BRA     SP_HELD
 
     * RED mode - blast
@@ -1126,6 +1131,11 @@ DO_DAMAGE:
     SUB.L   #1, D0                  * lose one health pip
     MOVE.L  D0, HEALTH
     MOVE.L  #10, HIT_COOLDOWN      * wait 10 frames before taking damage again
+    * play hit sound (ref 2, once)
+    MOVE.B  #2, D1
+    MOVE.L  #0, D2                  * 0 = play once
+    MOVE.B  #77, D0
+    TRAP    #15
 DMG_SKIP:
     RTS
 
@@ -1174,6 +1184,10 @@ TH_MISS:
 * ESC was pressed, shut everything down.
 *-----------------------------------------------------------
 QUIT_GAME:
+    * stop all sounds before closing
+    MOVE.L  #3, D2                  * 3 = stop all sounds
+    MOVE.B  #77, D0
+    TRAP    #15
     MOVE.B  #9, D0
     TRAP    #15
 
