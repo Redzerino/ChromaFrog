@@ -64,4 +64,4 @@ Try naming your frog **Filip** 🥸
 
 ## About
 
-Built by Sarah Crotty as a Year 2 Assembly Language project for the BA (Hons) Software Development at SETU Carlow, and defended in a verbal viva covering all routines, game mechanics and design decisions.
+Built by Sarah Crotty as a Year 2 Assembly Language project for the BSc (Hons) Software Development at SETU Carlow, and defended in a verbal viva covering all routines, game mechanics and design decisions.
